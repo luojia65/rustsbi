@@ -4,6 +4,7 @@ use sbi_spec::binary::SbiRet;
 // These structs should pass Rust build.
 
 #[derive(RustSBI)]
+#[rustsbi(dynamic)]
 struct WithGenerics<T: rustsbi::Timer> {
     reset: DummyReset,
     timer: T,
@@ -11,6 +12,7 @@ struct WithGenerics<T: rustsbi::Timer> {
 }
 
 #[derive(RustSBI)]
+#[rustsbi(dynamic)]
 struct WithWhereClause<T>
 where
     T: rustsbi::Timer,
@@ -21,12 +23,14 @@ where
 }
 
 #[derive(RustSBI)]
+#[rustsbi(dynamic)]
 struct WithConstantGenerics<const N: usize> {
     info: DummyEnvInfo,
     _dummy: [u8; N],
 }
 
 #[derive(RustSBI)]
+#[rustsbi(dynamic)]
 struct WithLifetime<'a> {
     info: &'a DummyEnvInfo,
 }
