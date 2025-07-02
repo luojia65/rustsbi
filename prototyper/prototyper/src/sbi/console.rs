@@ -11,13 +11,13 @@ pub trait ConsoleDevice {
     ///
     /// # Returns
     /// The number of bytes that were successfully read.
-    fn read(&self, buf: &mut [u8]) -> usize;
+    fn read(&mut self, buf: &mut [u8]) -> usize;
 
     /// Writes bytes from the provided buffer to the console.
     ///
     /// # Returns
     /// The number of bytes that were successfully written.
-    fn write(&self, buf: &[u8]) -> usize;
+    fn write(&mut self, buf: &[u8]) -> usize;
 }
 
 /// An implementation of the SBI console interface that wraps a console device.
@@ -62,7 +62,7 @@ impl SbiConsole {
     #[inline]
     pub fn getchar(&self) -> usize {
         let mut c = 0u8;
-        let console = self.inner.lock();
+        let mut console = self.inner.lock();
         // Block until we successfully read 1 byte
         while console.read(core::slice::from_mut(&mut c)) != 1 {
             core::hint::spin_loop();
@@ -105,7 +105,7 @@ impl fmt::Write for SbiConsole {
     #[inline]
     fn write_str(&mut self, s: &str) -> fmt::Result {
         let mut bytes = s.as_bytes();
-        let console = self.inner.lock();
+        let mut console = self.inner.lock();
         // Write all bytes in chunks
         while !bytes.is_empty() {
             let count = console.write(bytes);

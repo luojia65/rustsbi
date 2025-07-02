@@ -1,9 +1,9 @@
 use bouffalo_hal::uart::RegisterBlock as BflbUartRegisterBlock;
+use embedded_io::{Read, Write};
 use uart_sifive::MmioUartSifive;
 use uart_xilinx::MmioUartAxiLite;
 use uart16550::{Register, Uart16550};
-
-use crate::sbi::console::ConsoleDevice;
+use crate::{platform::PreviousStage, sbi::console::ConsoleDevice};
 
 pub(crate) const UART16650U8_COMPATIBLE: [&str; 1] = ["ns16550a"];
 pub(crate) const UART16650U32_COMPATIBLE: [&str; 1] = ["snps,dw-apb-uart"];
@@ -28,31 +28,31 @@ pub struct Uart16550Wrap<R: Register> {
 }
 
 impl<R: Register> Uart16550Wrap<R> {
-    pub fn new(base: usize) -> Self {
+    pub fn new(base: PreviousStage) -> Self {
         Self {
-            inner: base as *const Uart16550<R>,
+            inner: base.base as *const Uart16550<R>,
         }
     }
 }
 
 impl<R: Register> ConsoleDevice for Uart16550Wrap<R> {
-    fn read(&self, buf: &mut [u8]) -> usize {
+    fn read(&mut self, buf: &mut [u8]) -> usize {
         unsafe { (*self.inner).read(buf) }
     }
 
-    fn write(&self, buf: &[u8]) -> usize {
+    fn write(&mut self, buf: &[u8]) -> usize {
         unsafe { (*self.inner).write(buf) }
     }
 }
 
 /// For Uart AxiLite
 impl ConsoleDevice for MmioUartAxiLite {
-    fn read(&self, buf: &mut [u8]) -> usize {
-        self.read(buf)
+    fn read(&mut self, buf: &mut [u8]) -> usize {
+        Self::read(self, buf)
     }
 
-    fn write(&self, buf: &[u8]) -> usize {
-        self.write(buf)
+    fn write(&mut self, buf: &[u8]) -> usize {
+        Self::write(self, buf)
     }
 }
 
@@ -62,8 +62,8 @@ pub struct UartSifiveWrap {
 }
 
 impl UartSifiveWrap {
-    pub fn new(addr: usize) -> Self {
-        let inner = MmioUartSifive::new(addr);
+    pub fn new(addr: PreviousStage) -> Self {
+        let inner = MmioUartSifive::new(addr.base);
         inner.disable_interrupt();
         inner.enable_read();
         inner.enable_write();
@@ -74,56 +74,44 @@ impl UartSifiveWrap {
 
 /// For Uart Sifive
 impl ConsoleDevice for UartSifiveWrap {
-    fn read(&self, buf: &mut [u8]) -> usize {
+    fn read(&mut self, buf: &mut [u8]) -> usize {
         self.inner.read(buf)
     }
 
-    fn write(&self, buf: &[u8]) -> usize {
+    fn write(&mut self, buf: &[u8]) -> usize {
         self.inner.write(buf)
     }
 }
 
 /// For Uart BFLB
 pub struct UartBflbWrap {
-    inner: *const BflbUartRegisterBlock,
+    inner: bouffalo_hal::uart::BlockingSerial<'static>,
 }
 
 impl UartBflbWrap {
-    pub fn new(base: usize) -> Self {
+    pub fn new(base: PreviousStage) -> Self {
+        use bouffalo_hal::uart::BlockingSerial;
         Self {
-            inner: base as *const BflbUartRegisterBlock,
+            inner: unsafe { BlockingSerial::steal_freerun(base) },
         }
+    }
+}
+
+impl bouffalo_hal::uart::Instance<'static> for PreviousStage {
+    #[inline]
+    fn register_block(self) -> &'static BflbUartRegisterBlock {
+        unsafe { &*(self.base as *const BflbUartRegisterBlock) }
     }
 }
 
 impl ConsoleDevice for UartBflbWrap {
-    fn read(&self, buf: &mut [u8]) -> usize {
-        let uart = unsafe { &(*self.inner) };
-        while uart.fifo_config_1.read().receive_available_bytes() == 0 {
-            core::hint::spin_loop();
-        }
-        let len = core::cmp::min(
-            uart.fifo_config_1.read().receive_available_bytes() as usize,
-            buf.len(),
-        );
-        buf.iter_mut()
-            .take(len)
-            .for_each(|slot| *slot = uart.fifo_read.read());
-        len
+    fn read(&mut self, buf: &mut [u8]) -> usize {
+        self.inner.read(buf).unwrap()
     }
 
-    fn write(&self, buf: &[u8]) -> usize {
-        let uart = unsafe { &(*self.inner) };
-        let mut count = 0;
-        for current in buf {
-            if uart.fifo_config_1.read().transmit_available_bytes() == 0 {
-                break;
-            }
-            count += 1;
-            unsafe {
-                uart.fifo_write.write(*current);
-            }
-        }
-        count
+    fn write(&mut self, buf: &[u8]) -> usize {
+        let ans = self.inner.write(buf).unwrap();
+        self.inner.flush().unwrap();
+        ans
     }
 }

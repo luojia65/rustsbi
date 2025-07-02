@@ -61,6 +61,24 @@ impl BoardInfo {
     }
 }
 
+/// Device ownership with base address from previous stage.
+#[derive(Debug)]
+pub struct PreviousStage {
+    base: usize,
+}
+
+impl PreviousStage {
+    /// Steal ownership of this device from previous stage.
+    ///
+    /// # Safety
+    ///
+    /// Must ensure that the same device is only stolen once.
+    #[inline]
+    pub unsafe fn steal(base: usize) -> PreviousStage {
+        PreviousStage { base }
+    }
+}
+
 pub struct Platform {
     pub info: BoardInfo,
     pub sbi: SBI,
@@ -268,12 +286,13 @@ impl Platform {
         self.sbi.console = self
             .info
             .console
-            .map(|(base, console_type)| match console_type {
-                Uart16550U8 => SbiConsole::new(Uart16550Wrap::<u8>::new(base)),
-                Uart16550U32 => SbiConsole::new(Uart16550Wrap::<u32>::new(base)),
-                UartAxiLite => SbiConsole::new(MmioUartAxiLite::new(base)),
-                UartBflb => SbiConsole::new(UartBflbWrap::new(base)),
-                UartSifive => SbiConsole::new(UartSifiveWrap::new(base)),
+            .map(|(base, console_type)| (unsafe { PreviousStage::steal(base) }, console_type))
+            .map(|(device, console_type)| match console_type {
+                Uart16550U8 => SbiConsole::new(Uart16550Wrap::<u8>::new(device)),
+                Uart16550U32 => SbiConsole::new(Uart16550Wrap::<u32>::new(device)),
+                UartAxiLite => SbiConsole::new(MmioUartAxiLite::new(device.base)),
+                UartBflb => SbiConsole::new(UartBflbWrap::new(device)),
+                UartSifive => SbiConsole::new(UartSifiveWrap::new(device)),
             });
     }
 
