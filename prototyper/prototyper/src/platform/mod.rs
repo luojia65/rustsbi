@@ -1,36 +1,33 @@
-use alloc::string::String;
-use alloc::{boxed::Box, string::ToString};
+use alloc::string::{String, ToString};
 use clint::{SifiveClintWrap, THeadClintWrap};
 use core::{
     ops::Range,
     sync::atomic::{AtomicBool, Ordering},
 };
 use reset::SifiveTestDeviceWrap;
-use spin::Mutex;
 use uart_xilinx::MmioUartAxiLite;
 
 use crate::cfg::NUM_HART_MAX;
 use crate::devicetree::*;
 use crate::fail;
 use crate::platform::clint::{MachineClintType, SIFIVE_CLINT_COMPATIBLE, THEAD_CLINT_COMPATIBLE};
-use crate::platform::console::Uart16550Wrap;
-use crate::platform::console::UartBflbWrap;
-use crate::platform::console::UartSifiveWrap;
 use crate::platform::console::{
     MachineConsoleType, UART16650U8_COMPATIBLE, UART16650U32_COMPATIBLE, UARTAXILITE_COMPATIBLE,
-    UARTBFLB_COMPATIBLE, UARTSIFIVE_COMPATIBLE,
+    UARTBFLB_COMPATIBLE, UARTSIFIVE_COMPATIBLE, Uart16550Wrap, UartBflbWrap, UartSifiveWrap,
 };
 use crate::platform::reset::SIFIVETEST_COMPATIBLE;
-use crate::sbi::SBI;
-use crate::sbi::console::SbiConsole;
-use crate::sbi::features::extension_detection;
-use crate::sbi::hsm::SbiHsm;
-use crate::sbi::ipi::SbiIpi;
-use crate::sbi::logger;
-use crate::sbi::pmu::{EventToCounterMap, RawEventToCounterMap};
-use crate::sbi::reset::SbiReset;
-use crate::sbi::rfence::SbiRFence;
-use crate::sbi::suspend::SbiSuspend;
+use crate::sbi::{
+    SBI,
+    console::SbiConsole,
+    features::extension_detection,
+    hsm::SbiHsm,
+    ipi::SbiIpi,
+    logger,
+    pmu::{EventToCounterMap, RawEventToCounterMap},
+    reset::SbiReset,
+    rfence::SbiRFence,
+    suspend::SbiSuspend,
+};
 
 mod clint;
 mod console;
@@ -101,28 +98,21 @@ impl Platform {
 
     fn sbi_find_and_init_console(&mut self, root: &serde_device_tree::buildin::Node) {
         //  Get console device info
-        if let Some(stdout_path) = root.chosen_stdout_path() {
-            if let Some(node) = root.find(stdout_path) {
-                let info = get_compatible_and_range(&node);
-                if let Some((compatible, regs)) = info {
-                    for device_id in compatible.iter() {
-                        if UART16650U8_COMPATIBLE.contains(&device_id) {
-                            self.info.console = Some((regs.start, MachineConsoleType::Uart16550U8));
-                        }
-                        if UART16650U32_COMPATIBLE.contains(&device_id) {
-                            self.info.console =
-                                Some((regs.start, MachineConsoleType::Uart16550U32));
-                        }
-                        if UARTAXILITE_COMPATIBLE.contains(&device_id) {
-                            self.info.console = Some((regs.start, MachineConsoleType::UartAxiLite));
-                        }
-                        if UARTBFLB_COMPATIBLE.contains(&device_id) {
-                            self.info.console = Some((regs.start, MachineConsoleType::UartBflb));
-                        }
-                        if UARTSIFIVE_COMPATIBLE.contains(&device_id) {
-                            self.info.console = Some((regs.start, MachineConsoleType::UartSifive));
-                        }
-                    }
+        if let Some(stdout_path) = root.chosen_stdout_path()
+            && let Some(node) = root.find(stdout_path)
+            && let Some((compatible, regs)) = get_compatible_and_range(&node)
+        {
+            for device_id in compatible.iter() {
+                if UART16650U8_COMPATIBLE.contains(&device_id) {
+                    self.info.console = Some((regs.start, MachineConsoleType::Uart16550U8));
+                } else if UART16650U32_COMPATIBLE.contains(&device_id) {
+                    self.info.console = Some((regs.start, MachineConsoleType::Uart16550U32));
+                } else if UARTAXILITE_COMPATIBLE.contains(&device_id) {
+                    self.info.console = Some((regs.start, MachineConsoleType::UartAxiLite));
+                } else if UARTBFLB_COMPATIBLE.contains(&device_id) {
+                    self.info.console = Some((regs.start, MachineConsoleType::UartBflb));
+                } else if UARTSIFIVE_COMPATIBLE.contains(&device_id) {
+                    self.info.console = Some((regs.start, MachineConsoleType::UartSifive));
                 }
             }
         }
@@ -136,25 +126,26 @@ impl Platform {
     fn sbi_init_ipi_reset_hsm_rfence(&mut self, root: &serde_device_tree::buildin::Node) {
         // Get ipi and reset device info
         let mut find_device = |node: &serde_device_tree::buildin::Node| {
-            let info = get_compatible_and_range(node);
-            if let Some(info) = info {
-                let (compatible, regs) = info;
-                let base_address = regs.start;
-                for device_id in compatible.iter() {
-                    // Initialize clint device.
-                    if SIFIVE_CLINT_COMPATIBLE.contains(&device_id) {
-                        if node.get_prop("clint,has-no-64bit-mmio").is_some() {
-                            self.info.ipi = Some((base_address, MachineClintType::TheadClint));
-                        } else {
-                            self.info.ipi = Some((base_address, MachineClintType::SiFiveClint));
-                        }
-                    } else if THEAD_CLINT_COMPATIBLE.contains(&device_id) {
-                        self.info.ipi = Some((base_address, MachineClintType::TheadClint));
-                    }
-                    // Initialize reset device.
-                    if SIFIVETEST_COMPATIBLE.contains(&device_id) {
-                        self.info.reset = Some(base_address);
-                    }
+            let Some((compatible, regs)) = get_compatible_and_range(node) else {
+                return;
+            };
+            let base_address = regs.start;
+
+            for device_id in compatible.iter() {
+                // Process CLINT device
+                if THEAD_CLINT_COMPATIBLE.contains(&device_id) {
+                    self.info.ipi = Some((base_address, MachineClintType::TheadClint));
+                } else if SIFIVE_CLINT_COMPATIBLE.contains(&device_id) {
+                    let clint_type = match node.get_prop("clint,has-no-64bit-mmio") {
+                        Some(_) => MachineClintType::TheadClint,
+                        None => MachineClintType::SiFiveClint,
+                    };
+                    self.info.ipi = Some((base_address, clint_type));
+                }
+
+                // Process Reset device
+                if SIFIVETEST_COMPATIBLE.contains(&device_id) {
+                    self.info.reset = Some(base_address);
                 }
             }
         };
@@ -273,80 +264,47 @@ impl Platform {
     }
 
     fn sbi_console_init(&mut self) {
-        if let Some((base, console_type)) = self.info.console {
-            self.sbi.console = match console_type {
-                MachineConsoleType::Uart16550U8 => Some(SbiConsole::new(Mutex::new(Box::new(
-                    Uart16550Wrap::<u8>::new(base),
-                )))),
-                MachineConsoleType::Uart16550U32 => Some(SbiConsole::new(Mutex::new(Box::new(
-                    Uart16550Wrap::<u32>::new(base),
-                )))),
-                MachineConsoleType::UartAxiLite => Some(SbiConsole::new(Mutex::new(Box::new(
-                    MmioUartAxiLite::new(base),
-                )))),
-                MachineConsoleType::UartBflb => Some(SbiConsole::new(Mutex::new(Box::new(
-                    UartBflbWrap::new(base),
-                )))),
-                MachineConsoleType::UartSifive => Some(SbiConsole::new(Mutex::new(Box::new(
-                    UartSifiveWrap::new(base),
-                )))),
-            };
-        } else {
-            self.sbi.console = None;
-        }
+        use MachineConsoleType::*;
+        self.sbi.console = self
+            .info
+            .console
+            .map(|(base, console_type)| match console_type {
+                Uart16550U8 => SbiConsole::new(Uart16550Wrap::<u8>::new(base)),
+                Uart16550U32 => SbiConsole::new(Uart16550Wrap::<u32>::new(base)),
+                UartAxiLite => SbiConsole::new(MmioUartAxiLite::new(base)),
+                UartBflb => SbiConsole::new(UartBflbWrap::new(base)),
+                UartSifive => SbiConsole::new(UartSifiveWrap::new(base)),
+            });
     }
 
     fn sbi_reset_init(&mut self) {
-        if let Some(base) = self.info.reset {
-            self.sbi.reset = Some(SbiReset::new(Mutex::new(Box::new(
-                SifiveTestDeviceWrap::new(base),
-            ))));
-        } else {
-            self.sbi.reset = None;
-        }
+        self.sbi.reset = self
+            .info
+            .reset
+            .map(|base| SbiReset::new(SifiveTestDeviceWrap::new(base)));
     }
 
     fn sbi_ipi_init(&mut self) {
-        if let Some((base, clint_type)) = self.info.ipi {
-            self.sbi.ipi = match clint_type {
-                MachineClintType::SiFiveClint => Some(SbiIpi::new(
-                    Mutex::new(Box::new(SifiveClintWrap::new(base))),
-                    self.info.cpu_num.unwrap_or(NUM_HART_MAX),
-                )),
-                MachineClintType::TheadClint => Some(SbiIpi::new(
-                    Mutex::new(Box::new(THeadClintWrap::new(base))),
-                    self.info.cpu_num.unwrap_or(NUM_HART_MAX),
-                )),
-            };
-        } else {
-            self.sbi.ipi = None;
-        }
+        use MachineClintType::*;
+        let max_hart_id = self.info.cpu_num.unwrap_or(NUM_HART_MAX);
+        self.sbi.ipi = self.info.ipi.map(|(base, clint_type)| match clint_type {
+            SiFiveClint => SbiIpi::new(SifiveClintWrap::new(base), max_hart_id),
+            TheadClint => SbiIpi::new(THeadClintWrap::new(base), max_hart_id),
+        });
     }
 
     fn sbi_hsm_init(&mut self) {
         // TODO: Can HSM work properly when there is no ipi device?
-        if self.info.ipi.is_some() {
-            self.sbi.hsm = Some(SbiHsm);
-        } else {
-            self.sbi.hsm = None;
-        }
+        self.sbi.hsm = self.info.ipi.map(|_val| SbiHsm);
     }
 
     fn sbi_rfence_init(&mut self) {
         // TODO: Can rfence work properly when there is no ipi device?
-        if self.info.ipi.is_some() {
-            self.sbi.rfence = Some(SbiRFence);
-        } else {
-            self.sbi.rfence = None;
-        }
+        self.sbi.rfence = self.info.ipi.map(|_val| SbiRFence);
     }
 
     fn sbi_susp_init(&mut self) {
-        if self.sbi.hsm.is_some() {
-            self.sbi.susp = Some(SbiSuspend);
-        } else {
-            self.sbi.susp = None;
-        }
+        self.sbi.susp = self.sbi.hsm.as_ref().map(|_val| SbiSuspend);
     }
 
     pub fn print_board_info(&self) {

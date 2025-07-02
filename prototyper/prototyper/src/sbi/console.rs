@@ -34,8 +34,10 @@ impl SbiConsole {
     /// # Arguments
     /// * `inner` - A mutex containing the console device implementation
     #[inline]
-    pub fn new(inner: Mutex<Box<dyn ConsoleDevice>>) -> Self {
-        Self { inner }
+    pub fn new(inner: impl ConsoleDevice + 'static) -> Self {
+        Self {
+            inner: Mutex::new(Box::new(inner)),
+        }
     }
 
     /// Writes a single character to the console.

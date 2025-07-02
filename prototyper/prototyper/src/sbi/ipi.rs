@@ -119,9 +119,9 @@ impl rustsbi::Ipi for SbiIpi {
 impl SbiIpi {
     /// Create new SBI IPI instance.
     #[inline]
-    pub fn new(ipi_dev: Mutex<Box<dyn IpiDevice>>, max_hart_id: usize) -> Self {
+    pub fn new(ipi_dev: impl IpiDevice + 'static, max_hart_id: usize) -> Self {
         Self {
-            ipi_dev,
+            ipi_dev: Mutex::new(Box::new(ipi_dev)),
             max_hart_id,
         }
     }

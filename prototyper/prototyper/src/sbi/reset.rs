@@ -15,8 +15,10 @@ pub struct SbiReset {
 }
 
 impl SbiReset {
-    pub fn new(reset_dev: Mutex<Box<dyn ResetDevice>>) -> Self {
-        Self { reset_dev }
+    pub fn new(reset_dev: impl ResetDevice + 'static) -> Self {
+        Self {
+            reset_dev: Mutex::new(Box::new(reset_dev)),
+        }
     }
 
     #[allow(unused)]
@@ -40,7 +42,6 @@ impl rustsbi::Reset for SbiReset {
                 value => self.reset_dev.lock().fail(value as _),
             },
             RESET_TYPE_COLD_REBOOT | RESET_TYPE_WARM_REBOOT => self.reset_dev.lock().reset(),
-
             _ => SbiRet::invalid_param(),
         }
     }
