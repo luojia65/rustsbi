@@ -21,19 +21,17 @@ mod sbi;
 use core::arch::{asm, naked_asm};
 
 use crate::platform::PLATFORM;
-use crate::riscv::csr::menvcfg;
-use crate::riscv::current_hartid;
-use crate::sbi::features::hart_mhpm_mask;
-use crate::sbi::features::{
-    Extension, PrivilegedVersion, hart_extension_probe, hart_features_detection,
-    hart_privileged_version,
+use crate::riscv::{csr::menvcfg, current_hartid};
+use crate::sbi::{
+    features::{
+        Extension, PrivilegedVersion, detect_hart_features, hart_extension_probe, hart_mhpm_mask,
+        hart_privileged_version,
+    },
+    hart_context::NextStage,
+    heap::sbi_heap_init,
+    hsm::local_remote_hsm,
+    ipi, trap, trap_stack,
 };
-use crate::sbi::hart_context::NextStage;
-use crate::sbi::heap::sbi_heap_init;
-use crate::sbi::hsm::local_remote_hsm;
-use crate::sbi::ipi;
-use crate::sbi::trap;
-use crate::sbi::trap_stack;
 
 pub const R_RISCV_RELATIVE: usize = 3;
 
@@ -85,8 +83,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         let hart_id = current_hartid();
         info!("{:<30}: {}", "Boot HART ID", hart_id);
 
-        // Detection Hart Features
-        hart_features_detection();
+        // Detect Hart Features
+        detect_hart_features();
         // Other harts task entry.
         trap_stack::prepare_for_trap();
         let priv_version = hart_privileged_version(hart_id);
@@ -111,8 +109,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             mpp
         );
     } else {
-        // Detection Hart feature
-        hart_features_detection();
+        // Detect Hart features
+        detect_hart_features();
         // Other harts task entry.
         trap_stack::prepare_for_trap();
 

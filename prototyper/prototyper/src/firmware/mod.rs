@@ -16,8 +16,11 @@ use core::arch::{asm, naked_asm};
 use core::ops::Range;
 use riscv::register::mstatus;
 
+/// Boot information indicating the address and privilege mode of the next stage.
 pub struct BootInfo {
+    /// Next stage address, e.g. kernel entry address.
     pub next_address: usize,
+    /// Privilege mode of next stage, typically S-mode for kernels.
     pub mpp: mstatus::MPP,
 }
 

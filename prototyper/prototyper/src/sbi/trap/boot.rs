@@ -1,3 +1,5 @@
+//! Boot trap handler and the `boot` function.
+
 use crate::riscv::current_hartid;
 use crate::sbi::hsm::local_hsm;
 use crate::sbi::ipi;
@@ -5,9 +7,12 @@ use crate::sbi::trap_stack;
 use core::arch::naked_asm;
 use riscv::register::{mie, mstatus, satp, sstatus};
 
-/// Boot Function.
-/// After boot, this flow will never back again,
-/// so we can store a0, a1 and mepc only.
+/// Boot function.
+///
+/// After boot, the control flow would never come back to the bootloading process
+/// except only for trap handling.
+/// Hence, only a0, a1 and mepc are stored as `BootContext` if exception raises
+/// within this function.
 #[unsafe(naked)]
 pub unsafe extern "C" fn boot() -> ! {
     naked_asm!(
@@ -80,7 +85,10 @@ pub extern "C" fn boot_handler(ctx: &mut BootContext) {
 #[derive(Debug)]
 #[repr(C)]
 pub struct BootContext {
+    /// `mepc` register.
     pub mepc: usize, // 0
+    /// `a0` register.
     pub a0: usize,
+    /// `a1` register.
     pub a1: usize, // 2
 }

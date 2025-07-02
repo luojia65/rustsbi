@@ -2,13 +2,14 @@ use riscv::register::misa;
 use seq_macro::seq;
 use serde_device_tree::buildin::NodeSeq;
 
-use crate::riscv::csr::*;
-use crate::riscv::current_hartid;
-use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
-use crate::sbi::trap_stack::{hart_context, hart_context_mut};
-
 use super::early_trap::csr_swap;
+use crate::riscv::{csr::*, current_hartid};
+use crate::sbi::{
+    early_trap::{TrapInfo, csr_read_allow, csr_write_allow},
+    trap_stack::{hart_context, hart_context_mut},
+};
 
+/// RISC-V hart features, including supported extensions, privileged specification version, etc.
 pub struct HartFeatures {
     extensions: [bool; Extension::COUNT],
     privileged_version: PrivilegedVersion,
@@ -22,14 +23,20 @@ impl HartFeatures {
     }
 }
 
+/// RISC-V Privileged Specification version.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PrivilegedVersion {
+    /// Unknown version.
     Unknown = 0,
+    /// Version 1.10.
     Version1_10 = 1,
+    /// Version 1.11.
     Version1_11 = 2,
+    /// Version 1.12.
     Version1_12 = 3,
 }
 
+/// Detectable RISC-V extension.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Extension {
     Sstc = 0,
@@ -138,7 +145,7 @@ fn privileged_version_detection() {
 }
 
 fn mhpm_detection() {
-    // The standard specifies that mcycle,minstret,mtime must be implemented
+    // The standard specifies that mcycle, minstret and mtime must be implemented
     let mut current_mhpm_mask: u32 = 0b111;
     let mut trap_info: TrapInfo = TrapInfo::default();
 
@@ -162,7 +169,7 @@ fn mhpm_detection() {
 
     // CSR_MHPMCOUNTER3:   0xb03
     // CSR_MHPMCOUNTER31:  0xb1f
-    seq!(csr_num in 0xb03..=0xb1f{
+    seq!(csr_num in 0xb03..=0xb1f {
         m_check_mhpm_csr!(csr_num, &mut trap_info, &mut current_mhpm_mask);
     });
 
@@ -171,7 +178,7 @@ fn mhpm_detection() {
     hart_context_mut(current_hartid()).features.mhpm_bits = 64;
 }
 
-pub fn hart_features_detection() {
+pub fn detect_hart_features() {
     privileged_version_detection();
     mhpm_detection();
 }

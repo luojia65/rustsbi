@@ -8,11 +8,12 @@ use rustsbi::{SbiRet, spec::hsm::hart_state};
 
 use crate::platform::PLATFORM;
 use crate::riscv::current_hartid;
-use crate::sbi::hart_context::NextStage;
-use crate::sbi::trap_stack::ROOT_STACK;
+use crate::sbi::{
+    hart_context::NextStage,
+    trap::boot::boot,
+    trap_stack::{ROOT_STACK, hart_context},
+};
 use crate::trap_stack::hart_context_mut;
-
-use super::{trap::boot::boot, trap_stack::hart_context};
 
 /// Special state indicating a hart is in the process of starting.
 const HART_STATE_START_PENDING_EXT: usize = usize::MAX;

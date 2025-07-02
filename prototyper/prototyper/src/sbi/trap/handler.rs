@@ -1,3 +1,5 @@
+//! Conventional trap handler ('entire' trap) and trap primitives.
+
 use fast_trap::{EntireContext, EntireContextSeparated, EntireResult, FastContext, FastResult};
 use riscv::register::{mepc, mie, mstatus, mtval, satp, sstatus};
 use riscv_decode::{Instruction, decode};
@@ -5,13 +7,11 @@ use rustsbi::RustSBI;
 use sbi_spec::pmu::firmware_event;
 
 use crate::platform::PLATFORM;
-use crate::riscv::csr::{CSR_TIME, CSR_TIMEH};
-use crate::riscv::current_hartid;
-use crate::sbi::console;
-use crate::sbi::hsm::local_hsm;
-use crate::sbi::ipi;
-use crate::sbi::pmu::pmu_firmware_counter_increment;
-use crate::sbi::rfence;
+use crate::riscv::{
+    csr::{CSR_TIME, CSR_TIMEH},
+    current_hartid,
+};
+use crate::sbi::{console, hsm::local_hsm, ipi, pmu::pmu_firmware_counter_increment, rfence};
 
 use super::helper::*;
 
@@ -78,6 +78,10 @@ pub fn msoft_handler(ctx: FastContext) -> FastResult {
     }
 }
 
+/// SBI call handler, used on supervisor environment call (ecall) trap handling process.
+///
+/// This function handles legacy console extensions (LEGACY_CONSOLE_PUTCHAR and
+/// LEGACY_CONSOLE_GETCHAR) as well for backward comptability.
 #[inline]
 #[allow(clippy::too_many_arguments)]
 pub fn sbi_call_handler(
@@ -153,7 +157,7 @@ pub fn delegate(ctx: &mut EntireContextSeparated) {
     }
 }
 
-/// Handle illegal instructions, particularly CSR access.
+/// Handle illegal instructions, particularly `TIME`, `TIMEH` CSR access.
 #[inline]
 pub extern "C" fn illegal_instruction_handler(raw_ctx: EntireContext) -> EntireResult {
     let mut ctx = raw_ctx.split().0;
@@ -190,6 +194,10 @@ pub extern "C" fn illegal_instruction_handler(raw_ctx: EntireContext) -> EntireR
     ctx.restore()
 }
 
+/// Misaligned load handler.
+///
+/// This handler decodes the load instruction, reads the unaligned data byte by byte,
+/// then fills the destination memory with the read result.
 #[inline]
 pub extern "C" fn load_misaligned_handler(ctx: EntireContext) -> EntireResult {
     let mut ctx = ctx.split().0;
@@ -251,6 +259,7 @@ pub extern "C" fn load_misaligned_handler(ctx: EntireContext) -> EntireResult {
     ctx.restore()
 }
 
+/// Misaligned store handler.
 #[inline]
 pub extern "C" fn store_misaligned_handler(ctx: EntireContext) -> EntireResult {
     let mut ctx = ctx.split().0;
