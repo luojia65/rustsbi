@@ -54,3 +54,9 @@ pub mod resume_status {
     /// Resume enclave from an ocall.
     pub const RESUME_FROM_OCALL: usize = 2;
 }
+
+// https://github.com/Penglai-Enclave/Penglai-Enclave-sPMP/blob/opensbi/opensbi-0.9/include/sm/enclave_args.h#L67
+#[repr(C)]
+pub struct EnclaveCreateParam {
+    // TODO
+}

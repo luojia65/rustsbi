@@ -7,6 +7,7 @@ members = [
     "library/sbi-testing",
     "library/rustsbi",
     "library/penglai",
+    "library/penglai-rt",
     "prototyper/prototyper",
     "prototyper/bench-kernel",
     "prototyper/test-kernel",
@@ -16,6 +17,8 @@ default-members = [
     "library/macros",
     "library/sbi-rt",
     "library/sbi-spec",
+    "library/penglai",
+    "library/penglai-rt",
     "library/rustsbi",
 ]
 
