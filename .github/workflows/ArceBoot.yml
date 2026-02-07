@@ -1,4 +1,4 @@
-name: Test
+name: ArceBoot
 
 on: [push, pull_request]
 
@@ -14,7 +14,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: riscv64gc-unknown-none-elf
-          toolchain: nightly-2025-03-31
+          toolchain: nightly-2025-08-01
 
       - name: Rust version diagnostics
         run: |
@@ -26,6 +26,9 @@ jobs:
         run: |
           rustup component add llvm-tools-preview
           cargo install cargo-binutils --locked --version 0.4.0
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper
 
       - name: Change directory to ArceBoot
         run: |

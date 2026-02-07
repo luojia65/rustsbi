@@ -21,7 +21,7 @@ EXTRA_CONFIG ?=
 
 # QEMU options
 DISK:= disk.img
-SBI ?= rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf
+SBI ?= ../target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf
 RAMDISK_CPIO:=ramdisk.cpio
 
 export AX_CONFIG_PATH=$(OUT_CONFIG)
