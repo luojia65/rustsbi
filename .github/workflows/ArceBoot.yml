@@ -27,17 +27,9 @@ jobs:
           rustup component add llvm-tools-preview
           cargo install cargo-binutils --locked --version 0.4.0
 
-      - name: Build RustSBI Prototyper
-        run: |
-          rustup target add riscv64imac-unknown-none-elf
-          cargo prototyper
-
-      - name: Change directory to ArceBoot
-        run: |
-          cd arceboot
-
       - name: Build with Makefile
         run: |
+          cd arceboot
           make defconfig
           make
 
