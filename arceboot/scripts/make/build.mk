@@ -2,7 +2,7 @@
 
 TARGET := riscv64gc-unknown-none-elf
 SCRIPT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-ROOT_DIR := $(abspath $(SCRIPT_DIR)/../..)
+ROOT_DIR := $(abspath $(SCRIPT_DIR)/../../..)
 
 ELF := $(ROOT_DIR)/target/$(TARGET)/release/arceboot
 BIN := $(ROOT_DIR)/target/$(TARGET)/release/arceboot.bin
