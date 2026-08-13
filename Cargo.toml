@@ -12,6 +12,7 @@ members = [
     "library/penglai",
     "library/pmpm",
     "library/smm",
+    "prototyper/machine",
     "prototyper/prototyper",
     "prototyper/bench-kernel",
     "prototyper/test-kernel",
