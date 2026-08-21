@@ -90,7 +90,7 @@ run_once() {
       ;;
   esac
 
-  ! grep -En 'panic|FAILED|SystemFailure' "$log_file" || return 1
+  ! grep -En 'panicked|FAILED|SystemFailure' "$log_file" || return 1
 }
 
 for attempt in $(seq 1 "$attempts"); do
