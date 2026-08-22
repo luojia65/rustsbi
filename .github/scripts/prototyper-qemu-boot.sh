@@ -81,12 +81,19 @@ run_once() {
     return 1
   }
 
-  while IFS= read -r pattern; do
+  # Patterns are read with the same semantics as the xtask side
+  # (`read_console_patterns`): trimmed lines, `#` comments skipped, and
+  # a missing trailing newline still yields the last line.
+  while IFS= read -r pattern || [ -n "$pattern" ]; do
+    pattern=${pattern%%"${pattern##*[![:space:]]}"}
+    pattern=${pattern#"${pattern%%[![:space:]]*}"}
     case "$pattern" in ''|'#'*) continue ;; esac
     grep -Fq "$pattern" "$log_file" || return 1
   done < <(sed "s/{smp}/$smp/g" "$expected_file")
 
-  while IFS= read -r pattern; do
+  while IFS= read -r pattern || [ -n "$pattern" ]; do
+    pattern=${pattern%%"${pattern##*[![:space:]]}"}
+    pattern=${pattern#"${pattern%%[![:space:]]*}"}
     case "$pattern" in ''|'#'*) continue ;; esac
     if grep -Fq "$pattern" "$log_file"; then
       return 1
