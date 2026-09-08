@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Forward unsupported misaligned loads to S-mode so Linux vector alignment probes do not panic.
 - refactor(prototyper): unify build commands (#227)
 - deps: update `sbi-spec` to version 0.0.10.
 - test-kernel: update PMU flag parameter trait names.

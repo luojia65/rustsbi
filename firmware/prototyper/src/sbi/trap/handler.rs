@@ -316,7 +316,10 @@ pub extern "C" fn load_misaligned_handler(ctx: EntireContext) -> EntireResult {
         Ok(Instruction::Lwu(data)) => (data.rd(), VarType::UnSigned, 4),
         Ok(Instruction::Ld(data)) => (data.rd(), VarType::Signed, 8),
         Ok(Instruction::Flw(data)) => (data.rd(), VarType::Float, 4),
-        _ => panic!("Unsupported inst"),
+        _ => {
+            delegate(&mut ctx);
+            return ctx.restore();
+        }
     };
     let (target_reg, var_type, len) = inst_type;
     let raw_data = get_data(current_addr, len);
