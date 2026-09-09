@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use core::mem::size_of;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::console::{ConsoleDevice, acquire_registers};
+use crate::driver::console::{DbcnBackend, DbcnError, acquire_registers};
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -38,7 +38,7 @@ bitflags! {
 pub(super) fn bind_u8(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn ConsoleDevice>> {
+) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
     let registers = acquire_registers::<u8>(registers, U8_SPAN, memory)?;
     Ok(Box::new(Uart16550::new(U8RegisterAccess(registers))))
 }
@@ -46,7 +46,7 @@ pub(super) fn bind_u8(
 pub(super) fn bind_u32(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn ConsoleDevice>> {
+) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
     let registers = acquire_registers::<u32>(registers, U32_SPAN, memory)?;
     Ok(Box::new(Uart16550::new(U32RegisterAccess(registers))))
 }
@@ -102,8 +102,8 @@ impl<Access: RegisterAccess> Uart16550<Access> {
     }
 }
 
-impl<Access: RegisterAccess + Send> ConsoleDevice for Uart16550<Access> {
-    fn read(&self, buf: &mut [u8]) -> usize {
+impl<Access: RegisterAccess> DbcnBackend for Uart16550<Access> {
+    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
         let mut count = 0;
         for byte in buf.iter_mut() {
             if !self.line_status().contains(LineStatus::DATA_READY) {
@@ -112,10 +112,10 @@ impl<Access: RegisterAccess + Send> ConsoleDevice for Uart16550<Access> {
             *byte = self.registers.read(Register::Data);
             count += 1;
         }
-        count
+        Ok(count)
     }
 
-    fn write(&self, buf: &[u8]) -> usize {
+    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
         let mut count = 0;
         for &byte in buf {
             if !self
@@ -127,6 +127,6 @@ impl<Access: RegisterAccess + Send> ConsoleDevice for Uart16550<Access> {
             self.registers.write(Register::Data, byte);
             count += 1;
         }
-        count
+        Ok(count)
     }
 }

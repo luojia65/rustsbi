@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use core::mem::size_of;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::console::{ConsoleDevice, acquire_registers};
+use crate::driver::console::{DbcnBackend, DbcnError, acquire_registers};
 
 /// Register offsets within the SiFive UART register map.
 #[repr(usize)]
@@ -46,7 +46,7 @@ bitflags! {
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn ConsoleDevice>> {
+) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
     let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
     Ok(Box::new(UartSiFive::new(registers)))
 }
@@ -111,8 +111,8 @@ impl UartSiFive {
     }
 }
 
-impl ConsoleDevice for UartSiFive {
-    fn read(&self, buf: &mut [u8]) -> usize {
+impl DbcnBackend for UartSiFive {
+    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
         let mut count = 0;
         for byte in buf.iter_mut() {
             match self.read_byte() {
@@ -123,10 +123,10 @@ impl ConsoleDevice for UartSiFive {
                 None => break,
             }
         }
-        count
+        Ok(count)
     }
 
-    fn write(&self, buf: &[u8]) -> usize {
+    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
         let mut count = 0;
         for &byte in buf {
             if self.tx_fifo_full() {
@@ -135,6 +135,6 @@ impl ConsoleDevice for UartSiFive {
             self.write_reg(Register::TxData, byte as u32);
             count += 1;
         }
-        count
+        Ok(count)
     }
 }

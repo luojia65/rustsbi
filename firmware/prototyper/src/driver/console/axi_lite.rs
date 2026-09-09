@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use core::mem::size_of;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::console::{ConsoleDevice, acquire_registers};
+use crate::driver::console::{DbcnBackend, DbcnError, acquire_registers};
 
 /// Register offsets within the UART Lite register map.
 #[repr(usize)]
@@ -43,7 +43,7 @@ bitflags! {
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn ConsoleDevice>> {
+) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
     let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
     Ok(Box::new(UartAxiLite::new(registers)))
 }
@@ -74,8 +74,8 @@ impl UartAxiLite {
     }
 }
 
-impl ConsoleDevice for UartAxiLite {
-    fn read(&self, buf: &mut [u8]) -> usize {
+impl DbcnBackend for UartAxiLite {
+    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
         let mut count = 0;
         for byte in buf.iter_mut() {
             if !self.status().contains(Status::RX_VALID) {
@@ -84,10 +84,10 @@ impl ConsoleDevice for UartAxiLite {
             *byte = self.read_reg(Register::Rx) as u8;
             count += 1;
         }
-        count
+        Ok(count)
     }
 
-    fn write(&self, buf: &[u8]) -> usize {
+    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
         let mut count = 0;
         for &byte in buf {
             if self.status().contains(Status::TX_FULL) {
@@ -96,6 +96,6 @@ impl ConsoleDevice for UartAxiLite {
             self.write_reg(Register::Tx, byte as u32);
             count += 1;
         }
-        count
+        Ok(count)
     }
 }

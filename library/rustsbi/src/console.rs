@@ -1,13 +1,12 @@
 use spec::binary::{Physical, SbiRet};
 
-/// Debug Console extension.
+/// Debug Console extension (DBCN, EID `0x4442434E`).
 ///
 /// The debug console extension defines a generic mechanism for debugging
 /// and boot-time early prints from supervisor-mode software.
 ///
-/// Kernel developers should switch to driver-based console implementation
-/// instead of using this extension to prevent possible race conditions between
-/// the firmware and the kernel when drivers are ready.
+/// DBCN supersedes the legacy console putchar (EID `0x01`) and console getchar
+/// (EID `0x02`) extensions, adding multi-byte reads and writes within one SBI call.
 ///
 /// If the underlying physical console has extra bits for error checking
 /// (or correction), then these extra bits should be handled by the SBI
@@ -15,38 +14,40 @@ use spec::binary::{Physical, SbiRet};
 ///
 /// *NOTE:* It is recommended that bytes sent/received using the debug
 /// console extension follow UTF-8 character encoding.
+///
+/// Ref: [SBI v3.0, Section 12](https://docs.riscv.org/reference/sbi/_attachments/riscv-sbi.pdf#page=51).
 pub trait Console {
     /// Write bytes to the debug console from input memory.
-    ///
-    /// # Parameters
-    ///
-    /// The `bytes` parameter specifies the input memory, including its length
-    /// and memory physical base address (both lower and upper bits).
     ///
     /// # Non-blocking function
     ///
     /// This is a non-blocking SBI call, and it may do partial or no write operations
     /// if the debug console is not able to accept more bytes.
     ///
-    /// # Return value
-    ///
-    /// The number of bytes written is returned in `SbiRet.value` and the
-    /// possible return error codes returned in `SbiRet.error` are shown in
-    /// the table below:
-    ///
-    /// | Return code               | Description
-    /// |:--------------------------|:----------------------------------------------
-    /// | `SbiRet::success()`       | Bytes written successfully.
-    /// | `SbiRet::invalid_param()` | The memory pointed to by `bytes` does not satisfy the [requirements](struct.Physical.html#Requirements) described in shared memory physical address range.
-    /// | `SbiRet::failed()`        | Failed to write due to I/O errors.
-    fn write(&self, bytes: Physical<&[u8]>) -> SbiRet;
-    /// Read bytes from the debug console into an output memory.
-    ///
     /// # Parameters
     ///
-    /// The `bytes` parameter specifies the output memory, including the maximum
-    /// bytes which can be written, and its memory physical base address
-    /// (both lower and upper bits).
+    /// [`Physical::num_bytes`] gives the input byte count (`num_bytes` in the SBI
+    /// specification). [`Physical::phys_addr_lo`] and [`Physical::phys_addr_hi`]
+    /// encode `base_addr_lo` and `base_addr_hi`, respectively: the lower and upper
+    /// XLEN bits of the input buffer's physical base address.
+    ///
+    /// # Return value
+    ///
+    /// On success, [`SbiRet::value`] holds the unsigned number of bytes written
+    /// (`sbiret.uvalue` in the specification). On error, its value is unspecified
+    /// by the general calling convention in Section 3.
+    ///
+    /// [`SbiRet::error`] follows the Console Write error table in SBI v3.0,
+    /// Section 12.1 (Table 50):
+    ///
+    /// | Error Code | Description |
+    /// |:-----------|:------------|
+    /// | `SbiRet::success(n)` | Bytes were written successfully. |
+    /// | `SbiRet::invalid_param()` | The range encoded by `bytes` fails the shared-memory requirements in [Section 3.2](https://docs.riscv.org/reference/sbi/_attachments/riscv-sbi.pdf#page=17). |
+    /// | `SbiRet::denied()` | Console output is not permitted. |
+    /// | `SbiRet::failed()` | The write failed because of an I/O error. |
+    fn write(&self, bytes: Physical<&[u8]>) -> SbiRet;
+    /// Read bytes from the debug console into an output memory.
     ///
     /// # Non-blocking function
     ///
@@ -54,35 +55,47 @@ pub trait Console {
     /// into the output memory if there are no bytes to be read in the
     /// debug console.
     ///
+    /// # Parameters
+    ///
+    /// [`Physical::num_bytes`] gives the output buffer's byte capacity (`num_bytes`
+    /// in the SBI specification). [`Physical::phys_addr_lo`] and
+    /// [`Physical::phys_addr_hi`] encode `base_addr_lo` and `base_addr_hi`,
+    /// respectively: the lower and upper XLEN bits of its physical base address.
+    ///
     /// # Return value
     ///
-    /// The number of bytes read is returned in `SbiRet.value` and the
-    /// possible return error codes returned in `SbiRet.error` are shown in
-    /// the table below:
+    /// On success, [`SbiRet::value`] holds the unsigned number of bytes read
+    /// (`sbiret.uvalue` in the specification). On error, its value is unspecified
+    /// by the general calling convention in Section 3.
     ///
-    /// | Return code               | Description
-    /// |:--------------------------|:----------------------------------------------
-    /// | `SbiRet::success()`       | Bytes read successfully.
-    /// | `SbiRet::invalid_param()` | The memory pointed to by `bytes` does not satisfy the [requirements](struct.Physical.html#Requirements) described in shared memory physical address range.
-    /// | `SbiRet::failed()`        | Failed to read due to I/O errors.
+    /// [`SbiRet::error`] follows the Console Read error table in SBI v3.0,
+    /// Section 12.2 (Table 51):
+    ///
+    /// | Error Code | Description |
+    /// |:-----------|:------------|
+    /// | `SbiRet::success(n)` | Bytes were read successfully. |
+    /// | `SbiRet::invalid_param()` | The range encoded by `bytes` fails the shared-memory requirements in [Section 3.2](https://docs.riscv.org/reference/sbi/_attachments/riscv-sbi.pdf#page=17). |
+    /// | `SbiRet::denied()` | Console input is not permitted. |
+    /// | `SbiRet::failed()` | The read failed because of an I/O error. |
     fn read(&self, bytes: Physical<&mut [u8]>) -> SbiRet;
     /// Write a single byte to the debug console.
     ///
     /// # Blocking function
     ///
-    /// This is a blocking SBI call, and it will only return after writing
-    /// the specified byte to the debug console.
-    /// It will also return with `SbiRet::failed()` if there are I/O errors.
+    /// This SBI call blocks until the byte is written, unless console access is
+    /// denied or an I/O error occurs.
     ///
     /// # Return value
     ///
-    /// The `SbiRet.value` is set to zero, and the possible return error
-    /// codes returned in `SbiRet.error` are shown in the table below:
+    /// [`SbiRet::value`] (`sbiret.uvalue` in the specification) is zero on every
+    /// return, including errors. [`SbiRet::error`] follows the Console Write Byte
+    /// error table in SBI v3.0, Section 12.3 (Table 52):
     ///
-    /// | Return code               | Description
-    /// |:--------------------------|:----------------------------------------------
-    /// | `SbiRet::success()`       | Byte written successfully.
-    /// | `SbiRet::failed()`        | Failed to write the byte due to I/O errors.
+    /// | Error Code | Description |
+    /// |:-----------|:------------|
+    /// | `SbiRet::success(0)` | The byte was written. |
+    /// | `SbiRet::denied()` | Console output is not permitted. |
+    /// | `SbiRet::failed()` | The byte write failed because of an I/O error. |
     fn write_byte(&self, byte: u8) -> SbiRet;
     /// Function internal to macros. Do not use.
     #[doc(hidden)]

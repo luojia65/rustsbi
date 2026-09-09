@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use core::mem::size_of;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::console::{BAUD_RATE, ConsoleDevice, acquire_registers};
+use crate::driver::console::{BAUD_RATE, DbcnBackend, DbcnError, acquire_registers};
 
 // PL011 derives Baud16 from UARTCLK / 16 and stores the fractional divisor in
 // sixty-fourths.
@@ -66,7 +66,7 @@ pub(super) fn bind(
     registers: DeviceRegisterRange,
     clock_hz: Option<u32>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn ConsoleDevice>> {
+) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
     let clock_hz = clock_hz.ok_or(runtime::Error::InvalidArgs)?;
     let divisors = BaudDivisors::from_clock_hz(clock_hz).ok_or(runtime::Error::InvalidArgs)?;
     let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
@@ -141,30 +141,33 @@ impl UartPl011 {
         Flags::from_bits_retain(self.read_reg(Register::Flags))
     }
 
-    fn read_byte(&self) -> Option<u8> {
+    fn read_byte(&self) -> Result<Option<u8>, DbcnError> {
         if self.flags().contains(Flags::RX_FIFO_EMPTY) {
-            return None;
+            return Ok(None);
         }
         let data_register = self.read_reg(Register::Data);
-        let errors = DataStatus::from_bits_retain(data_register);
-        errors.is_empty().then_some(data_register as u8)
+        let errors = DataStatus::from_bits_truncate(data_register);
+        if !errors.is_empty() {
+            return Err(DbcnError::Failed);
+        }
+        Ok(Some(data_register as u8))
     }
 }
 
-impl ConsoleDevice for UartPl011 {
-    fn read(&self, buf: &mut [u8]) -> usize {
+impl DbcnBackend for UartPl011 {
+    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
         let mut count = 0;
         for byte in buf.iter_mut() {
-            let Some(received_byte) = self.read_byte() else {
+            let Some(received_byte) = self.read_byte()? else {
                 break;
             };
             *byte = received_byte;
             count += 1;
         }
-        count
+        Ok(count)
     }
 
-    fn write(&self, buf: &[u8]) -> usize {
+    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
         let mut count = 0;
         for &byte in buf {
             if self.flags().contains(Flags::TX_FIFO_FULL) {
@@ -173,6 +176,6 @@ impl ConsoleDevice for UartPl011 {
             self.write_reg(Register::Data, byte as u32);
             count += 1;
         }
-        count
+        Ok(count)
     }
 }

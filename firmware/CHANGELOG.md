@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
+- Add DBCN contract tests with deferred error reporting to the test kernel.
 - Add RV32 support to RustSBI Prototyper and test-kernel while preserving RV64 support.
 - Add Yuzuki Neko board configuration with an RV32 firmware jump target of `0x40000000`.
 - Add SBI Collaborative Processor Performance Control extension support to RustSBI Prototyper.
@@ -21,11 +22,8 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
-- Replace Prototyper reset devices with typed SRST requests and a fallible `ResetBackend` interface.
-  Prepare each backend's associated command once and pass it directly to reset execution.
-  Reject reserved and unimplemented specific parameters with `SBI_ERR_INVALID_PARAM`, distinguish
-  missing dependencies from reset failures, and honor shutdown requests regardless of the standard
-  reset reason.
+- Replace Prototyper console devices with fallible, non-blocking `DbcnBackend` slice operations.
+- Replace Prototyper reset devices with typed requests and a fallible `ResetBackend` interface.
 - Forward unsupported misaligned loads to S-mode so Linux vector alignment probes do not panic.
 - refactor(prototyper): unify build commands (#227)
 - deps: update `sbi-spec` to version 0.0.10.

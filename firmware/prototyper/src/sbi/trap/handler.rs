@@ -213,7 +213,8 @@ pub fn sbi_call_handler(
             }
             legacy::LEGACY_CONSOLE_PUTCHAR => {
                 if let Some(console) = crate::sbi::console() {
-                    console.write_byte_blocking(ctx.a0() as u8);
+                    // Legacy putchar has no backend-error return channel.
+                    let _ = console.write_byte_blocking(ctx.a0() as u8);
                     ret.error = 0;
                     ret.value = a1;
                 }

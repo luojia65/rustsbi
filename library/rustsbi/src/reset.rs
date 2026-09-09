@@ -1,13 +1,13 @@
 use sbi_spec::binary::SbiRet;
 
-/// System Reset extension.
+/// System Reset extension (SRST, EID `0x53525354`).
 ///
 /// Provides a function that allows the supervisor software to request system-level reboot or shutdown.
 ///
 /// The term "system" refers to the world-view of supervisor software and the underlying SBI implementation
 /// could be machine mode firmware or hypervisor.
 ///
-/// Ref: [Section 9, RISC-V Supervisor Binary Interface Specification](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/master/riscv-sbi.adoc#9-system-reset-extension-eid-0x53525354-srst)
+/// Ref: [SBI v3.0, Section 10](https://raw.githubusercontent.com/riscv-non-isa/riscv-sbi-doc/v3.0/src/ext-sys-reset.adoc).
 pub trait Reset {
     /// Reset the system based on provided `reset_type` and `reset_reason`.
     ///
@@ -31,15 +31,41 @@ pub trait Reset {
     /// cold reboot and warm reboot will behave functionally the same as the native case but might
     /// not result in any physical power changes.
     ///
+    /// # Parameters
+    ///
+    /// `reset_type` is a 32-bit reset selector with the encodings in the RISC-V
+    /// SBI Specification v3.0, Section 10.1 (Table 26):
+    ///
+    /// | Value | Meaning |
+    /// |:------|:--------|
+    /// | `0x00000000` | Shutdown |
+    /// | `0x00000001` | Cold reboot |
+    /// | `0x00000002` | Warm reboot |
+    /// | `0x00000003..=0xEFFFFFFF` | Reserved for future use |
+    /// | `0xF0000000..=0xFFFFFFFF` | Vendor-specific or platform-specific reset type |
+    ///
+    /// `reset_reason` encodes an optional reset reason in 32 bits, using the
+    /// values in Table 27:
+    ///
+    /// | Value | Meaning |
+    /// |:------|:--------|
+    /// | `0x00000000` | No reason |
+    /// | `0x00000001` | System failure |
+    /// | `0x00000002..=0xDFFFFFFF` | Reserved for future use |
+    /// | `0xE0000000..=0xEFFFFFFF` | Reason specific to the SBI implementation |
+    /// | `0xF0000000..=0xFFFFFFFF` | Vendor-specific or platform-specific reset reason |
+    ///
     /// # Return value
     ///
-    /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
+    /// A return indicates failure. [`SbiRet::error`] follows the System Reset
+    /// error table in SBI v3.0, Section 10.1 (Table 28). The error-return
+    /// convention in Section 3 does not define [`SbiRet::value`] for this function.
     ///
-    /// | Error code                | Description
-    /// |:--------------------------|:---------------
-    /// | `SbiRet::invalid_param()` | `reset_type` or `reset_reason` is not valid.
-    /// | `SbiRet::not_supported()` | `reset_type` is valid but not implemented.
-    /// | `SbiRet::failed()`        | Reset request failed for unknown reasons.
+    /// | Error Code | Description |
+    /// |:-----------|:------------|
+    /// | `SbiRet::invalid_param()` | Either parameter has a reserved value, or a platform-specific value that has no implementation. |
+    /// | `SbiRet::not_supported()` | The reset type has an implementation and is not reserved, but the platform lacks at least one required dependency. |
+    /// | `SbiRet::failed()` | The request could not be completed for another unknown or unspecified reason. |
     fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet;
     /// Function internal to macros. Do not use.
     #[doc(hidden)]
