@@ -23,7 +23,7 @@ use crate::riscv::current_hartid;
 
 pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN, initialize_hart_imsic};
 pub(crate) use clint::ClintKind;
-pub(crate) use console::{ConsoleDevice, ConsoleKind};
+pub(crate) use console::{ConsoleKind, DbcnBackend, DbcnError};
 
 pub(crate) use reset::{
     I2cAddress, P1_PMIC_COMPATIBLES, PMIC_I2C_COMPATIBLES, ResetDevice, ResetError, ResetReason,
@@ -33,7 +33,7 @@ pub(crate) use reset::{
 /// Platform devices constructed from the discovered hardware description.
 pub(crate) struct Devices {
     pub(crate) interrupts: Option<InterruptDevices>,
-    pub(crate) console: Option<Box<dyn ConsoleDevice>>,
+    pub(crate) console: Option<Box<dyn DbcnBackend + Send>>,
     pub(crate) reset: Option<Box<dyn ResetDevice + Send>>,
 }
 

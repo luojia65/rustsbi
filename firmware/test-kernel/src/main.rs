@@ -5,6 +5,7 @@
 #[macro_use]
 extern crate rcore_console;
 
+mod console;
 mod reset;
 
 use core::{
@@ -114,13 +115,43 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     };
     let test_result = testing.test();
 
+    let console_result = console::test();
     pmu_test(smp);
     fence_test(hartid, smp);
     reset::test();
 
-    if test_result {
+    // Report console diagnostics only after all other suites have run.
+    let console_passed = console_result.is_ok();
+    match console_result {
+        Ok(console::TestOutcome::Unavailable) => {
+            println!("Sbi `DBCN` return contract test skipped: extension unavailable");
+        }
+        Ok(console::TestOutcome::Complete { inconclusive }) => {
+            if inconclusive != 0 {
+                println!("DBCN: {inconclusive} data-path checks inconclusive due to DENIED/FAILED");
+            }
+            println!("Sbi `DBCN` return contract test pass");
+        }
+        Err(errors) => {
+            for error in errors.into_iter().flatten() {
+                println!(
+                    "DBCN {} FAILED: test error {} ({:?}), capacity={}, SBI error={}, value={}",
+                    error.operation,
+                    error.code as u8,
+                    error.code,
+                    error.capacity,
+                    error.returned_error,
+                    error.returned_value
+                );
+            }
+        }
+    }
+
+    if test_result && console_passed {
+        println!("SBI tests completed: PASS");
         sbi::system_reset(sbi::Shutdown, sbi::NoReason);
     } else {
+        println!("SBI tests completed: FAILED");
         sbi::system_reset(sbi::Shutdown, sbi::SystemFailure);
     }
     unreachable!()

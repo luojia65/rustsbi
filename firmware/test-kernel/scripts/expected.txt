@@ -8,7 +8,9 @@ Sbi `Base` test pass
 Sbi `TIME` test pass
 Sbi `sPI` test pass
 Sbi `DBCN` test pass
+Sbi `DBCN` return contract test pass
 DBCN rejected non-zero upper-half write
 DBCN rejected non-zero upper-half read
 [pmu] counters number:
 Sbi `SRST` validation test pass
+SBI tests completed: PASS

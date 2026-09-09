@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use core::mem::size_of;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::console::{ConsoleDevice, acquire_registers, uart_divisor};
+use crate::driver::console::{DbcnBackend, DbcnError, acquire_registers, uart_divisor};
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -57,7 +57,7 @@ pub(super) fn bind(
     registers: DeviceRegisterRange,
     clock_hz: Option<u32>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn ConsoleDevice>> {
+) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
     let clock_hz = clock_hz.ok_or(runtime::Error::InvalidArgs)?;
     let baud = BaudSetup::from_clock_hz(clock_hz).ok_or(runtime::Error::InvalidArgs)?;
     bind_with_baud(registers, baud, memory)
@@ -67,7 +67,7 @@ pub(super) fn bind_spacemit_k1(
     registers: DeviceRegisterRange,
     clock_hz: Option<u32>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn ConsoleDevice>> {
+) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
     // Some K1 device trees name a clock provider without supplying its rate.
     // In that case, preserve the divisor installed by the previous boot stage.
     let baud = match clock_hz {
@@ -81,7 +81,7 @@ fn bind_with_baud(
     registers: DeviceRegisterRange,
     baud: BaudSetup,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn ConsoleDevice>> {
+) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
     let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
     Ok(Box::new(UartXScale::new(registers, baud)))
 }
@@ -170,8 +170,8 @@ impl UartXScale {
     }
 }
 
-impl ConsoleDevice for UartXScale {
-    fn read(&self, buf: &mut [u8]) -> usize {
+impl DbcnBackend for UartXScale {
+    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
         let mut count = 0;
         for byte in buf.iter_mut() {
             if !self.line_status().contains(LineStatus::DATA_READY) {
@@ -180,19 +180,21 @@ impl ConsoleDevice for UartXScale {
             *byte = self.read_reg(Register::DataOrDivisorLow) as u8;
             count += 1;
         }
-        count
+        Ok(count)
     }
 
-    fn write(&self, buf: &[u8]) -> usize {
+    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
+        let mut count = 0;
         for &byte in buf {
-            while !self
+            if !self
                 .line_status()
                 .contains(LineStatus::TX_HOLDING_REGISTER_EMPTY)
             {
-                core::hint::spin_loop();
+                break;
             }
             self.write_reg(Register::DataOrDivisorLow, byte as u32);
+            count += 1;
         }
-        buf.len()
+        Ok(count)
     }
 }

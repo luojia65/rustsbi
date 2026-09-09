@@ -7,7 +7,7 @@ use runtime::memory::SupervisorMemory;
 use spin::{Mutex, Once, RwLock};
 
 use crate::cfg::NUM_HART_MAX;
-use crate::driver::ConsoleDevice;
+use crate::driver::DbcnBackend;
 
 use super::info::{BoardInfo, HartEnableList};
 
@@ -20,14 +20,14 @@ static READY: AtomicBool = AtomicBool::new(false);
 struct Platform {
     board: BoardInfo,
     supervisor_memory: SupervisorMemory,
-    console: Option<Mutex<Box<dyn ConsoleDevice>>>,
+    console: Option<Mutex<Box<dyn DbcnBackend + Send>>>,
 }
 
 /// Publishes resources constructed by the boot hart.
 pub(super) fn publish_resources(
     board: BoardInfo,
     supervisor_memory: SupervisorMemory,
-    console: Option<Box<dyn ConsoleDevice>>,
+    console: Option<Box<dyn DbcnBackend + Send>>,
 ) {
     let enabled_harts = board.enabled_harts;
     PLATFORM.call_once(|| Platform {
@@ -63,7 +63,7 @@ pub(crate) fn supervisor_memory() -> &'static SupervisorMemory {
     &platform().supervisor_memory
 }
 
-pub(crate) fn console_device() -> Option<&'static Mutex<Box<dyn ConsoleDevice>>> {
+pub(crate) fn console_device() -> Option<&'static Mutex<Box<dyn DbcnBackend + Send>>> {
     PLATFORM
         .get()
         .and_then(|platform| platform.console.as_ref())

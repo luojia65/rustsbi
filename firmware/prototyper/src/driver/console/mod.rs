@@ -1,4 +1,4 @@
-//! UART console drivers.
+//! Byte-oriented console backends.
 //!
 //! # References
 //!
@@ -22,13 +22,67 @@ use crate::platform::BoardInfo;
 
 pub(crate) use kind::ConsoleKind;
 
-/// A byte-oriented console device.
-pub(crate) trait ConsoleDevice: Send {
-    /// Reads bytes into `buf` and returns the number read.
-    fn read(&self, buf: &mut [u8]) -> usize;
+/// Low-level error category for one backend slice operation.
+///
+/// These are the backend errors shared by all three DBCN functions in SBI v3.0,
+/// Section 12, Tables 50-52. Lack of progress is `Ok(0)`, not an error.
+///
+/// Important:
+/// - `InvalidParam` is intentionally absent.
+///   Physical-memory-range validation and translation belong to the SBI entry layer.
+/// - `write_slice` / `read_slice` operate on one concrete contiguous slice only.
+///   They are not identical to SBI `write` / `read`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DbcnError {
+    /// Console access is not allowed; mapped to `SBI_ERR_DENIED` (-4).
+    #[allow(
+        dead_code,
+        reason = "current UART backends do not restrict console access"
+    )]
+    Denied,
+    /// Backend I/O failure; mapped to `SBI_ERR_FAILED` (-1), not `SBI_ERR_IO`.
+    Failed,
+}
 
-    /// Writes bytes from `buf` and returns the number written.
-    fn write(&self, buf: &[u8]) -> usize;
+/// A backend that can serve as the byte-oriented data path of an SBI DBCN console.
+///
+/// Important:
+/// - This trait is intentionally not named `Uart`.
+/// - This trait is also intentionally not phrased in terms of SBI calls.
+/// - It models one backend operation on one contiguous slice.
+///
+/// Relationship with SBI DBCN:
+/// - SBI `write` may translate one physical memory range into 1..N slices, then
+///   call `write_slice` repeatedly.
+/// - SBI `read` may translate one physical memory range into 1..N slices, then
+///   call `read_slice` repeatedly.
+/// - SBI `write_byte` uses `write_slice(&[byte])`, retrying `Ok(0)` to preserve
+///   the SBI call's blocking semantics.
+pub trait DbcnBackend {
+    /// Try to write bytes from one contiguous source slice.
+    ///
+    /// Returns:
+    /// - `Ok(n)` where `0 <= n <= src.len()`, meaning exactly the first `n` bytes
+    ///   of `src` are accepted by the backend;
+    /// - `Err(DbcnError::Denied)` if writes are not allowed;
+    /// - `Err(DbcnError::Failed)` on backend I/O failure.
+    ///
+    /// This is a non-blocking slice operation. It is not the SBI `write` call itself.
+    fn write_slice(&mut self, src: &[u8]) -> Result<usize, DbcnError>;
+
+    /// Try to read bytes into one contiguous destination slice.
+    ///
+    /// Returns:
+    /// - `Ok(n)` where `0 <= n <= dst.len()`, meaning exactly `n` bytes are consumed
+    ///   from the backend receive queue and written into the destination slice;
+    /// - `Err(DbcnError::Denied)` if reads are not allowed;
+    /// - `Err(DbcnError::Failed)` on backend I/O failure.
+    ///
+    /// This is a non-blocking slice operation. It is not the SBI `read` call itself.
+    ///
+    /// Note: this abstraction specifies the backend state transition and the
+    /// number of bytes read. It does not model the concrete contents of `dst` yet.
+    fn read_slice(&mut self, dst: &mut [u8]) -> Result<usize, DbcnError>;
 }
 
 pub(super) const BAUD_RATE: u32 = 115_200;
@@ -62,7 +116,7 @@ fn acquire_registers<T: MmioValue>(
 pub(super) fn bind(
     board: &BoardInfo,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Option<Box<dyn ConsoleDevice>>> {
+) -> runtime::Result<Option<Box<dyn DbcnBackend + Send>>> {
     let Some(console) = board.console.as_ref() else {
         return Ok(None);
     };
