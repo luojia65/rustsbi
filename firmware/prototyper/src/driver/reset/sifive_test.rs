@@ -9,7 +9,7 @@ use alloc::boxed::Box;
 use core::mem::{align_of, size_of};
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::reset::ResetDevice;
+use super::{ResetBackend, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType};
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -38,6 +38,20 @@ impl FinishCommand {
     fn new(action: FinishAction, code: u16) -> Self {
         Self(u32::from(action as u16) | (u32::from(code) << u16::BITS))
     }
+
+    fn for_request(req: ResetRequest) -> Option<Self> {
+        match (req.reset_type, req.reset_reason) {
+            (ResetType::Shutdown, ResetReason::NoReason) => Some(Self::new(FinishAction::Pass, 0)),
+            (ResetType::Shutdown, ResetReason::SystemFailure) => {
+                Some(Self::new(FinishAction::Fail, u16::MAX))
+            }
+            (
+                ResetType::ColdReboot | ResetType::WarmReboot,
+                ResetReason::NoReason | ResetReason::SystemFailure,
+            ) => Some(Self::new(FinishAction::Reset, 0)),
+            _ => None,
+        }
+    }
 }
 
 /// SiFive test device used by QEMU to exit or reset.
@@ -48,7 +62,7 @@ struct SifiveTestDevice {
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn ResetDevice>> {
+) -> runtime::Result<Box<dyn ResetDevice + Send>> {
     let registers = registers.subrange(0, SPAN)?;
     if !registers.start().is_aligned_to(align_of::<u32>()) {
         return Err(runtime::Error::InvalidArgs);
@@ -65,29 +79,30 @@ impl SifiveTestDevice {
     }
 
     /// Writes the finish value and parks the hart until the board powers off.
-    fn finish(&self, command: FinishCommand) -> ! {
-        self.registers
+    fn finish(&mut self, command: FinishCommand) -> ResetError {
+        if self
+            .registers
             .write(Register::Finish.offset(), command.0)
-            .expect("BUG: SiFive test register escaped its MMIO window");
+            .is_err()
+        {
+            return ResetError::Failed;
+        }
         loop {
             riscv::asm::wfi();
         }
     }
 }
 
-impl ResetDevice for SifiveTestDevice {
+impl ResetBackend for SifiveTestDevice {
+    type Request = FinishCommand;
+
     #[inline]
-    fn fail(&self, code: u16) -> ! {
-        self.finish(FinishCommand::new(FinishAction::Fail, code))
+    fn prepare_reset(&self, req: ResetRequest) -> Option<Self::Request> {
+        FinishCommand::for_request(req)
     }
 
     #[inline]
-    fn pass(&self) -> ! {
-        self.finish(FinishCommand::new(FinishAction::Pass, 0))
-    }
-
-    #[inline]
-    fn reset(&self) -> ! {
-        self.finish(FinishCommand::new(FinishAction::Reset, 0))
+    fn system_reset(&mut self, req: Self::Request) -> ResetError {
+        self.finish(req)
     }
 }

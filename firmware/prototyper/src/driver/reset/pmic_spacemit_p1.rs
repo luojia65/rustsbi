@@ -11,7 +11,7 @@ use alloc::boxed::Box;
 use bitflags::bitflags;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry};
 
-use crate::driver::reset::ResetDevice;
+use super::{ResetBackend, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType};
 
 use controller::K1I2cController;
 
@@ -44,6 +44,21 @@ bitflags! {
     }
 }
 
+impl PowerControl {
+    fn for_request(req: ResetRequest) -> Option<Self> {
+        match (req.reset_type, req.reset_reason) {
+            (ResetType::Shutdown, ResetReason::NoReason | ResetReason::SystemFailure) => {
+                Some(Self::SHUTDOWN)
+            }
+            (
+                ResetType::ColdReboot | ResetType::WarmReboot,
+                ResetReason::NoReason | ResetReason::SystemFailure,
+            ) => Some(Self::RESET),
+            _ => None,
+        }
+    }
+}
+
 struct P1Pmic {
     i2c: K1I2cController,
     address: I2cAddress,
@@ -54,7 +69,7 @@ pub(super) fn bind(
     address: I2cAddress,
     timebase_frequency_hz: Option<u32>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn ResetDevice>> {
+) -> runtime::Result<Box<dyn ResetDevice + Send>> {
     Ok(Box::new(P1Pmic {
         i2c: K1I2cController::bind(registers, timebase_frequency_hz, memory)?,
         address,
@@ -82,24 +97,17 @@ impl P1Pmic {
     }
 }
 
-impl ResetDevice for P1Pmic {
-    fn fail(&self, _code: u16) -> ! {
-        if !self.set_power_control(PowerControl::RESET) {
-            error!("P1 PMIC: reset transaction failed");
-        }
-        self.park()
+impl ResetBackend for P1Pmic {
+    type Request = PowerControl;
+
+    fn prepare_reset(&self, req: ResetRequest) -> Option<Self::Request> {
+        PowerControl::for_request(req)
     }
 
-    fn pass(&self) -> ! {
-        if !self.set_power_control(PowerControl::SHUTDOWN) {
-            error!("P1 PMIC: shutdown transaction failed");
-        }
-        self.park()
-    }
-
-    fn reset(&self) -> ! {
-        if !self.set_power_control(PowerControl::RESET) {
-            error!("P1 PMIC: reset transaction failed");
+    fn system_reset(&mut self, req: Self::Request) -> ResetError {
+        if !self.set_power_control(req) {
+            error!("P1 PMIC: power-control transaction failed");
+            return ResetError::Failed;
         }
         self.park()
     }

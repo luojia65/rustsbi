@@ -5,6 +5,8 @@
 #[macro_use]
 extern crate rcore_console;
 
+mod reset;
+
 use core::{
     arch::{asm, naked_asm},
     ptr::null,
@@ -114,6 +116,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
 
     pmu_test(smp);
     fence_test(hartid, smp);
+    reset::test();
 
     if test_result {
         sbi::system_reset(sbi::Shutdown, sbi::NoReason);

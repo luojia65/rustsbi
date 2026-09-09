@@ -113,7 +113,7 @@ fn publish_platform_services(
 
 fn publish_sbi_dispatcher(
     interrupts: Option<InterruptDevices>,
-    reset: Option<Box<dyn ResetDevice>>,
+    reset: Option<Box<dyn ResetDevice + Send>>,
     pmu: Option<SbiPmu>,
 ) {
     let supervisor_memory = state::supervisor_memory();
