@@ -249,6 +249,15 @@ impl<T: core::fmt::Debug> RemoteHsmCell<'_, T> {
     /// Returns true if successful, false if hart was not in STOPPED state.
     #[inline]
     pub fn start(&self, t: T) -> bool {
+        self.start_with(t, || Ok::<(), core::convert::Infallible>(()))
+            .unwrap()
+    }
+
+    /// Reserves a stopped hart and publishes startup data after waking it.
+    ///
+    /// A failed wake restores STOPPED, so another start can retry; the target
+    /// cannot consume startup data while START_PENDING_EXT is held.
+    pub fn start_with<E>(&self, t: T, wake: impl FnOnce() -> Result<(), E>) -> Result<bool, E> {
         if self
             .0
             .status
@@ -260,13 +269,19 @@ impl<T: core::fmt::Debug> RemoteHsmCell<'_, T> {
             )
             .is_ok()
         {
+            if let Err(error) = wake() {
+                self.0.status.store(hart_state::STOPPED, Ordering::Release);
+                return Err(error);
+            }
+            // SAFETY: the STOPPED -> START_PENDING_EXT transition reserves
+            // the cell for this writer; local start spins until publication.
             unsafe { *self.0.inner.get() = Some(t) };
             self.0
                 .status
                 .store(hart_state::START_PENDING, Ordering::Release);
-            true
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 
@@ -404,6 +419,18 @@ impl RemoteRFenceCell<'_> {
     #[inline]
     pub(crate) fn try_push(&self, item: (RFenceContext, usize)) -> bool {
         self.0.try_push(item)
+    }
+
+    /// Cancels this source's one queued request after an IPI send failure.
+    ///
+    /// If it has already been taken, the receiver must acknowledge it instead.
+    pub(crate) fn cancel(&self, source_hart: usize) -> bool {
+        let mut queue = self.0.queue.lock();
+        let Some(index) = queue.iter().position(|(_, source)| *source == source_hart) else {
+            return false;
+        };
+        queue.remove(index);
+        true
     }
 
     /// Decrements the synchronization counter.
