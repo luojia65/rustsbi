@@ -42,15 +42,17 @@ impl rustsbi::Hsm for SbiHsm {
 
         match remote_hsm(hartid) {
             Some(remote) => {
-                if remote.start(NextStage {
-                    start_addr,
-                    opaque,
-                    next_mode: MPP::Supervisor,
-                }) {
-                    crate::sbi::ipi().unwrap().send_ipi(hartid);
-                    SbiRet::success(0)
-                } else {
-                    SbiRet::already_available()
+                match remote.start_with(
+                    NextStage {
+                        start_addr,
+                        opaque,
+                        next_mode: MPP::Supervisor,
+                    },
+                    || crate::sbi::ipi().unwrap().send_ipi(hartid),
+                ) {
+                    Ok(true) => SbiRet::success(0),
+                    Ok(false) => SbiRet::already_available(),
+                    Err(crate::driver::IpiError::Failed) => SbiRet::failed(),
                 }
             }
             None => SbiRet::invalid_param(),
@@ -90,7 +92,13 @@ impl rustsbi::Hsm for SbiHsm {
         }
 
         crate::sbi::trap::handler::msoft_ipi_handler();
-        crate::sbi::ipi().unwrap().clear_ipi();
+        if crate::sbi::ipi()
+            .unwrap()
+            .clear_ipi(current_hartid())
+            .is_err()
+        {
+            return SbiRet::failed();
+        }
         mie::enable_msoft();
         local_hsm().suspend();
         riscv::asm::wfi();

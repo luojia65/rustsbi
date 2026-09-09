@@ -9,7 +9,7 @@
 
 use super::pmu::pmu_firmware_counter_increment;
 use crate::cfg::NUM_HART_MAX;
-use crate::driver::IpiDevice;
+use crate::driver::{IpiBackend, IpiError, IpiRequest};
 use crate::riscv::current_hartid;
 use crate::sbi::hsm::remote_hsm;
 use crate::sbi::rfence;
@@ -31,7 +31,7 @@ pub(crate) const IPI_TYPE_FENCE: u8 = 1 << 1;
 /// SBI IPI extension.
 pub struct SbiIpi {
     /// IPI device: CLINT `msip` registers or IMSIC MSI files.
-    device: Mutex<Box<dyn IpiDevice>>,
+    device: Mutex<Box<dyn IpiBackend + Send>>,
     /// Maximum hart ID in the system.
     pub max_hart_id: usize,
 }
@@ -41,36 +41,19 @@ impl rustsbi::Ipi for SbiIpi {
     #[inline]
     fn send_ipi(&self, hart_mask: rustsbi::HartMask) -> SbiRet {
         pmu_firmware_counter_increment(firmware_event::IPI_SENT);
-        let mut deliver_harts = Vec::new();
+        let requests = match target_requests(hart_mask, self.max_hart_id) {
+            Ok(requests) => requests,
+            Err(error) => return error,
+        };
 
-        for hart_id in target_harts(hart_mask, self.max_hart_id) {
-            // Reject targets that are out of range, absent, disabled, or in a
-            // state that does not accept IPIs; the delivery loop below
-            // assumes every collected hart passed these checks.
-            if hart_id > self.max_hart_id {
-                return SbiRet::invalid_param();
+        for req in requests {
+            for hart_id in req.harts() {
+                set_ipi_type(hart_id, IPI_TYPE_SSOFT);
             }
-
-            let Some(hsm) = remote_hsm(hart_id) else {
-                return SbiRet::invalid_param();
-            };
-
-            if crate::platform::enabled_harts()
-                .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
-            {
-                return SbiRet::invalid_param();
-            }
-
-            if !hsm.allow_ipi() {
-                return SbiRet::invalid_param();
-            }
-
-            deliver_harts.push(hart_id);
-        }
-
-        for hart_id in deliver_harts {
-            if set_ipi_type(hart_id, IPI_TYPE_SSOFT) == 0 {
-                self.send_ipi(hart_id);
+            // Always signal: pending bits can remain after a failed send.
+            fence(Release);
+            if self.device.lock().send_ipi(req).is_err() {
+                return SbiRet::failed();
             }
         }
 
@@ -81,7 +64,7 @@ impl rustsbi::Ipi for SbiIpi {
 impl SbiIpi {
     /// Creates a new SBI IPI extension.
     #[inline]
-    pub(crate) fn new(device: Box<dyn IpiDevice>, max_hart_id: usize) -> Self {
+    pub(crate) fn new(device: Box<dyn IpiBackend + Send>, max_hart_id: usize) -> Self {
         Self {
             device: Mutex::new(device),
             max_hart_id,
@@ -95,67 +78,57 @@ impl SbiIpi {
         ctx: rfence::RFenceContext,
     ) -> SbiRet {
         let current_hart = current_hartid();
-        let mut deliver_harts = Vec::new();
+        let requests = match target_requests(hart_mask, self.max_hart_id) {
+            Ok(requests) => requests,
+            Err(error) => return error,
+        };
+        let local = rfence::local_rfence().unwrap();
+        let mut result = SbiRet::success(0);
 
-        for hart_id in target_harts(hart_mask, self.max_hart_id) {
-            // Reject targets that are out of range, absent, disabled, or in a
-            // state that does not accept IPIs; the delivery loop below
-            // assumes every collected hart passed these checks.
-            if hart_id > self.max_hart_id {
-                return SbiRet::invalid_param();
+        for hart_id in requests.into_iter().flat_map(IpiRequest::harts) {
+            let remote = rfence::remote_rfence(hart_id).unwrap();
+            local.add();
+            remote.set(ctx);
+            if hart_id == current_hart {
+                continue;
             }
 
-            let Some(hsm) = remote_hsm(hart_id) else {
-                return SbiRet::invalid_param();
-            };
-
-            if crate::platform::enabled_harts()
-                .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
-            {
-                return SbiRet::invalid_param();
+            set_ipi_type(hart_id, IPI_TYPE_FENCE);
+            if self.send_ipi(hart_id).is_ok() {
+                continue;
             }
-
-            if !hsm.allow_ipi() {
-                return SbiRet::invalid_param();
+            // Cancel this source's queued request; a receiver that already
+            // took it remains responsible for the acknowledgement.
+            if remote.cancel(current_hart) {
+                rfence::remote_rfence(current_hart).unwrap().sub();
             }
-
-            deliver_harts.push(hart_id);
+            result = SbiRet::failed();
+            break;
         }
 
-        for hart_id in deliver_harts {
-            if let Some(remote) = rfence::remote_rfence(hart_id) {
-                if let Some(local) = rfence::local_rfence() {
-                    local.add();
-                }
-                remote.set(ctx);
-                if hart_id != current_hart {
-                    let old_ipi_type = set_ipi_type(hart_id, IPI_TYPE_FENCE);
-                    if old_ipi_type == 0 {
-                        self.send_ipi(hart_id);
-                    }
-                }
-            }
-        }
-
-        while !rfence::local_rfence().unwrap().is_sync() {
+        // Complete previously submitted operations even if a later send failed.
+        while !local.is_sync() {
             rfence::rfence_single_handler();
         }
 
-        SbiRet::success(0)
+        result
     }
 
     /// Sends a firmware IPI to a hart.
     #[inline]
-    pub(crate) fn send_ipi(&self, hart_id: usize) {
+    pub(crate) fn send_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
         // Publish the pending IPI type before signaling the target device.
         fence(Release);
-        self.device.lock().send_ipi(hart_id);
+        self.device.lock().send_ipi(IpiRequest {
+            hart_mask: 1,
+            hart_mask_base: hart_id,
+        })
     }
 
-    /// Clears the current hart's firmware IPI.
+    /// Clears the specified hart's firmware IPI register.
     #[inline]
-    pub(crate) fn clear_ipi(&self) {
-        self.device.lock().clear_ipi();
+    pub(crate) fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
+        self.device.lock().clear_ipi(hart_id)
     }
 
     /// Reports whether IMSIC was selected after validation.
@@ -179,13 +152,15 @@ pub fn get_and_reset_ipi_type() -> u8 {
 #[inline]
 pub fn claim_ipi() {
     match crate::sbi::ipi() {
-        Some(ipi) => ipi.clear_ipi(),
+        Some(ipi) => ipi
+            .clear_ipi(current_hartid())
+            .expect("BUG: validated IPI backend could not clear the current hart"),
         None => error!("SBI or IPI device not initialized"),
     }
 }
 
 /// Initializes the SBI IPI extension from the selected device.
-pub(crate) fn init(ipi: Box<dyn IpiDevice>) -> SbiIpi {
+pub(crate) fn init(ipi: Box<dyn IpiBackend + Send>) -> SbiIpi {
     let max_hart_id = crate::platform::enabled_harts()
         .as_ref()
         .and_then(|hart_list| hart_list.iter().rposition(|enabled| *enabled))
@@ -199,11 +174,46 @@ pub(crate) fn uses_imsic() -> bool {
     crate::sbi::ipi().is_some_and(SbiIpi::uses_imsic)
 }
 
-fn target_harts(hart_mask: HartMask, max_hart_id: usize) -> Vec<usize> {
-    let (_mask, mask_base) = hart_mask.into_inner();
-    if mask_base == usize::MAX {
-        (0..=max_hart_id).collect()
-    } else {
-        hart_mask.into_iter().collect()
+fn target_requests(hart_mask: HartMask, max_hart_id: usize) -> Result<Vec<IpiRequest>, SbiRet> {
+    let enabled = crate::platform::enabled_harts().unwrap_or([false; NUM_HART_MAX]);
+    let available = |hart_id: usize| {
+        hart_id <= max_hart_id
+            && enabled.get(hart_id).copied().unwrap_or(false)
+            && remote_hsm(hart_id).is_some_and(|hsm| hsm.allow_ipi())
+    };
+    let (mask, base) = hart_mask.into_inner();
+    let mut requests = Vec::new();
+    if base == usize::MAX {
+        // Ignore mask and expand all available harts into ordinary windows.
+        for (window, harts) in enabled.chunks(usize::BITS as usize).enumerate() {
+            let base = window * usize::BITS as usize;
+            let mask = (0..harts.len()).fold(0, |mask, bit| {
+                mask | (usize::from(available(base + bit)) << bit)
+            });
+            if mask != 0 {
+                requests.push(IpiRequest {
+                    hart_mask: mask,
+                    hart_mask_base: base,
+                });
+            }
+        }
+    } else if mask != 0 {
+        // Validate every selected hart before any event or backend is touched.
+        for bit in 0..usize::BITS {
+            if mask & (1 << bit) == 0 {
+                continue;
+            }
+            let hart_id = base
+                .checked_add(bit as usize)
+                .ok_or_else(SbiRet::invalid_param)?;
+            if !available(hart_id) {
+                return Err(SbiRet::invalid_param());
+            }
+        }
+        requests.push(IpiRequest {
+            hart_mask: mask,
+            hart_mask_base: base,
+        });
     }
+    Ok(requests)
 }

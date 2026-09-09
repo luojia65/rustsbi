@@ -11,6 +11,7 @@
 mod aia;
 mod clint;
 mod console;
+mod ipi;
 mod reset;
 
 use alloc::boxed::Box;
@@ -24,6 +25,7 @@ use crate::riscv::current_hartid;
 pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN, initialize_hart_imsic};
 pub(crate) use clint::ClintKind;
 pub(crate) use console::{ConsoleKind, DbcnBackend, DbcnError};
+pub(crate) use ipi::{IpiBackend, IpiError, IpiRequest};
 
 pub(crate) use reset::{
     I2cAddress, P1_PMIC_COMPATIBLES, PMIC_I2C_COMPATIBLES, ResetDevice, ResetError, ResetReason,
@@ -49,7 +51,7 @@ impl Devices {
 /// Timer and IPI devices selected for the platform.
 pub(crate) struct InterruptDevices {
     pub(crate) timer: Box<dyn TimerDevice>,
-    pub(crate) ipi: Box<dyn IpiDevice>,
+    pub(crate) ipi: Box<dyn IpiBackend + Send>,
 }
 
 /// Timer operations used by the SBI timer extension.
@@ -59,20 +61,6 @@ pub(crate) trait TimerDevice: Send {
 
     /// Programs the timer comparison value for `hart_id`.
     fn set_timer(&self, hart_id: usize, value: u64);
-}
-
-/// Inter-processor interrupt operations implemented by a platform device.
-pub(crate) trait IpiDevice: Send {
-    /// Signals a firmware IPI to `hart_id`.
-    fn send_ipi(&self, hart_id: usize);
-
-    /// Clears the current hart's pending firmware IPI.
-    fn clear_ipi(&self);
-
-    /// Reports whether firmware IPIs arrive through an IMSIC interrupt file.
-    fn is_imsic(&self) -> bool {
-        false
-    }
 }
 
 /// Timer implementation using the Sstc `stimecmp` CSR.

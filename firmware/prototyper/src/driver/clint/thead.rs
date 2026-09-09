@@ -20,7 +20,7 @@ use core::mem::{align_of, size_of};
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
 use crate::cfg::NUM_HART_MAX;
-use crate::driver::{InterruptDevices, IpiDevice, TimerDevice};
+use crate::driver::{InterruptDevices, IpiBackend, IpiError, IpiRequest, TimerDevice};
 
 // The ACLINT legacy mapping places MTIMECMP at offset 0x4000.
 const MTIMECMP_OFFSET: usize = 0x4000;
@@ -59,12 +59,11 @@ impl IpiRegister {
         self as usize
     }
 
-    fn offset_for_hart(self, hart_id: usize) -> usize {
-        assert!(
-            hart_id < NUM_HART_MAX,
-            "BUG: T-Head CLINT IPI hart index is out of range"
-        );
-        self.offset() + hart_id * size_of::<u32>()
+    fn offset_for_hart(self, hart_id: usize) -> Result<usize, IpiError> {
+        hart_id
+            .checked_mul(size_of::<u32>())
+            .and_then(|offset| self.offset().checked_add(offset))
+            .ok_or(IpiError::Failed)
     }
 }
 
@@ -144,25 +143,24 @@ impl THeadIpi {
         Self { msip }
     }
 
-    fn write(&self, reg: IpiRegister, hart_id: usize, value: IpiState) {
+    fn write(&self, reg: IpiRegister, hart_id: usize, value: IpiState) -> Result<(), IpiError> {
         self.msip
-            .write(reg.offset_for_hart(hart_id), value as u32)
-            .expect("BUG: T-Head CLINT IPI register escaped its MMIO window")
+            .write(reg.offset_for_hart(hart_id)?, value as u32)
+            .map_err(|_| IpiError::Failed)
     }
 }
 
-impl IpiDevice for THeadIpi {
+impl IpiBackend for THeadIpi {
     #[inline(always)]
-    fn send_ipi(&self, hart_id: usize) {
-        self.write(IpiRegister::Msip, hart_id, IpiState::Pending)
+    fn send_ipi(&mut self, req: IpiRequest) -> Result<(), IpiError> {
+        for hart_id in req.harts() {
+            self.write(IpiRegister::Msip, hart_id, IpiState::Pending)?;
+        }
+        Ok(())
     }
 
     #[inline(always)]
-    fn clear_ipi(&self) {
-        self.write(
-            IpiRegister::Msip,
-            crate::riscv::current_hartid(),
-            IpiState::Clear,
-        )
+    fn clear_ipi(&mut self, hart_id: usize) -> Result<(), IpiError> {
+        self.write(IpiRegister::Msip, hart_id, IpiState::Clear)
     }
 }

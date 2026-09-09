@@ -12,7 +12,7 @@ use riscv_aia::register::mtopei;
 use runtime::memory::{MemoryRegistry, MmioRegion};
 
 use crate::cfg::NUM_HART_MAX;
-use crate::driver::{InterruptDevices, IpiDevice, SstcTimer};
+use crate::driver::{InterruptDevices, IpiBackend, IpiError, IpiRequest, SstcTimer};
 use crate::platform::qemu_aplic::QemuAplicConfig;
 use crate::platform::{BoardInfo, ImsicInfo, board_info};
 use crate::riscv::csr::imsic;
@@ -54,20 +54,30 @@ impl ImsicIpi {
     }
 }
 
-impl IpiDevice for ImsicIpi {
+impl IpiBackend for ImsicIpi {
     #[inline(always)]
-    fn send_ipi(&self, hart_id: usize) {
-        let Some(file) = self.hart_files.get(hart_id).and_then(Option::as_ref) else {
-            warn!("IMSIC IPI: hart {} has no mapped interrupt file", hart_id);
-            return;
-        };
-        file.write(Register::SetEipnumLe.offset(), self.ipi_iid.number() as u32)
-            .expect("BUG: IMSIC SETEIPNUM register escaped its interrupt-file window");
+    fn send_ipi(&mut self, req: IpiRequest) -> Result<(), IpiError> {
+        for hart_id in req.harts() {
+            let file = self
+                .hart_files
+                .get(hart_id)
+                .and_then(Option::as_ref)
+                .ok_or(IpiError::Failed)?;
+            file.write(Register::SetEipnumLe.offset(), self.ipi_iid.number() as u32)
+                .map_err(|_| IpiError::Failed)?;
+        }
+        Ok(())
     }
 
     #[inline(always)]
-    fn clear_ipi(&self) {
+    fn clear_ipi(&mut self, hart_id: usize) -> Result<(), IpiError> {
+        // IMSIC clearing uses CSRs on the attached hart; only the firmware
+        // IPI identity is enabled in the machine interrupt file.
+        if hart_id != current_hartid() {
+            return Err(IpiError::Failed);
+        }
         let _ = mtopei::claim();
+        Ok(())
     }
 
     #[inline(always)]
