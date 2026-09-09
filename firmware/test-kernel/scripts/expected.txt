@@ -11,3 +11,4 @@ Sbi `DBCN` test pass
 DBCN rejected non-zero upper-half write
 DBCN rejected non-zero upper-half read
 [pmu] counters number:
+Sbi `SRST` validation test pass

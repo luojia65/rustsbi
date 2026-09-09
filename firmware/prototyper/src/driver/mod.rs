@@ -26,14 +26,15 @@ pub(crate) use clint::ClintKind;
 pub(crate) use console::{ConsoleDevice, ConsoleKind};
 
 pub(crate) use reset::{
-    I2cAddress, P1_PMIC_COMPATIBLES, PMIC_I2C_COMPATIBLES, ResetDevice, SIFIVE_TEST_COMPATIBLES,
+    I2cAddress, P1_PMIC_COMPATIBLES, PMIC_I2C_COMPATIBLES, ResetDevice, ResetError, ResetReason,
+    ResetRequest, ResetType, SIFIVE_TEST_COMPATIBLES,
 };
 
 /// Platform devices constructed from the discovered hardware description.
 pub(crate) struct Devices {
     pub(crate) interrupts: Option<InterruptDevices>,
     pub(crate) console: Option<Box<dyn ConsoleDevice>>,
-    pub(crate) reset: Option<Box<dyn ResetDevice>>,
+    pub(crate) reset: Option<Box<dyn ResetDevice + Send>>,
 }
 
 impl Devices {
