@@ -25,6 +25,7 @@ pub(super) fn discover_platform(
         .transpose()?;
     interrupts::discover(&mut board, platform)?;
     board.soc.spacemit_k1 = platform.spacemit_k1_registers()?;
+    board.soc.spacemit_k3 = platform.soc::<runtime::soc::spacemit::k3::SpacemitK3Soc>()?;
     board.soc.v861 = platform.soc::<runtime::soc::allwinner::v861::AllwinnerV861Soc>()?;
     Ok(board)
 }

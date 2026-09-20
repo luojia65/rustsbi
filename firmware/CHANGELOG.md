@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 
+- Initialize K3 shared-SRAM PMA during boot-hart preparation and secondary-hart startup,
+  stopping initialization on CSR access failure or a missing covering entry.
+- Add per-hart K3 AP shared-SRAM PMA configuration with cache cleaning and attribute preservation.
 - Recognize the K3 AP SoC capability on RV64 from an enabled `spacemit,k3` device-tree root.
   Document the compatible and all K3 cores' RV64 architecture with pinned source and datasheet references.
 - Group V821 vendor SBI extensions under `sbi::vendor::allwinner::v821` and

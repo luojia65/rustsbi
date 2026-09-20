@@ -158,6 +158,7 @@ impl DeviceDescriptions {
 /// Vendor SoC descriptions that require boot-time preparation.
 pub(crate) struct SocDescriptions {
     pub(crate) spacemit_k1: Option<SpacemitK1Registers>,
+    pub(crate) spacemit_k3: Option<runtime::soc::spacemit::k3::SpacemitK3Soc>,
     pub(crate) v821: Option<crate::platform::allwinner::v821::Description>,
     pub(crate) v861: Option<runtime::soc::allwinner::v861::AllwinnerV861Soc>,
 }
@@ -166,6 +167,7 @@ impl SocDescriptions {
     const fn empty() -> Self {
         Self {
             spacemit_k1: None,
+            spacemit_k3: None,
             v821: None,
             v861: None,
         }

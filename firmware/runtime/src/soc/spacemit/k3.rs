@@ -18,6 +18,8 @@ use serde_device_tree::buildin::{Node, StrSeq};
 use crate::Result;
 use crate::soc::Soc;
 
+mod pma;
+
 /// A K3 AP/X100 capability, distinct from the RT24 real-time subsystem.
 ///
 /// The type carries no MMIO state.

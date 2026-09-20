@@ -62,6 +62,11 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
         .as_ref()
         .map(crate::platform::allwinner::v821::V821::noncacheable_alias_offset);
 
+    if let Some(soc) = board.soc.spacemit_k3 {
+        soc.initialize_amp_pma()
+            .during("configuring K3 shared SRAM PMA")?;
+    }
+
     if board.devices.interrupts.plmt.is_some()
         && board.devices.interrupts.plicsw.is_some()
         && let Some(v821) = v821.as_ref()
@@ -241,6 +246,10 @@ fn publish_sbi_dispatcher(
 pub fn initialize_secondary_hart() {
     if let Some(platform) = state::board_info().soc.spacemit_k1 {
         spacemit_k1::initialize_hart(platform);
+    }
+    if let Some(soc) = state::board_info().soc.spacemit_k3 {
+        soc.initialize_amp_pma()
+            .expect("K3 secondary hart failed to configure shared SRAM PMA");
     }
 }
 
