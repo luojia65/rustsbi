@@ -45,11 +45,13 @@ pub enum Extension {
     Smaia = 2,
     Svpbmt = 3,
     Zkr = 4,
+    Zicbom = 5,
+    Zicboz = 6,
     // Remember to increment `Extension::COUNT` while implementing new extensions.
 }
 
 impl Extension {
-    pub const COUNT: usize = 5;
+    pub const COUNT: usize = 7;
 
     pub const fn as_str(&self) -> &'static str {
         match self {
@@ -58,6 +60,8 @@ impl Extension {
             Self::Smaia => "smaia", // TODO verify with DTB standard
             Self::Svpbmt => "svpbmt",
             Self::Zkr => "zkr",
+            Self::Zicbom => "zicbom",
+            Self::Zicboz => "zicboz",
         }
     }
 
@@ -73,6 +77,8 @@ impl Extension {
             Self::Smaia,
             Self::Svpbmt,
             Self::Zkr,
+            Self::Zicbom,
+            Self::Zicboz,
         ]
         .into_iter()
     }
@@ -272,13 +278,23 @@ pub fn configure_hart_environment() {
         mcountinhibit::write_raw(!0b111usize);
     }
     if hart_priv_version >= PrivilegedVersion::Version1_12 {
+        let mut enabled = 0u64;
+        let mut disabled = 0u64;
         if hart_has_extension(hart_id, Extension::Sstc) {
-            menvcfg::set_bits(
-                menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
-            );
-        } else {
-            menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+            enabled |= menvcfg::STCE;
         }
+        if hart_has_extension(hart_id, Extension::Zicbom) {
+            enabled |= menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE;
+        } else {
+            disabled |= menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE;
+        }
+        if hart_has_extension(hart_id, Extension::Zicboz) {
+            enabled |= menvcfg::CBZE;
+        } else {
+            disabled |= menvcfg::CBZE;
+        }
+        menvcfg::clear_bits(disabled);
+        menvcfg::set_bits(enabled);
         // Follow the device tree: C907 firmware also describes its RV32
         // page-memory-type extension as Svpbmt and requires PBMTE.
         if hart_has_extension(hart_id, Extension::Svpbmt) {
